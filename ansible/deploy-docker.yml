@@ -1,0 +1,30 @@
+- name: Deploy Docker Container
+  hosts: azure_vm
+  become: true
+  tasks:
+
+    - name: Ensure Docker app directory exists
+      file:
+        path: /home/azureuser/docker-app/
+        state: directory
+        mode: '0755'
+
+    - name: Copy application files to VM (if required)
+      copy:
+        src: /home/azureuser/docker-app/  # This is on the remote VM
+        dest: /home/azureuser/docker-app/
+        remote_src: yes  # Tells Ansible to use the existing remote directory
+
+    - name: Build Docker image
+      command: docker build -t my-web-app /home/azureuser/docker-app/
+
+    - name: Stop existing container (if running)
+      command: docker stop web-app
+      ignore_errors: yes  # Avoid failure if the container does not exist
+
+    - name: Remove existing container (if exists)
+      command: docker rm web-app
+      ignore_errors: yes  # Avoid failure if the container does not exist
+
+    - name: Run Docker container
+      command: docker run -d -p 80:80 --name web-app my-web-app
