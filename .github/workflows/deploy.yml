@@ -20,8 +20,8 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker build -t my-app .
+          docker build -t docker-app .
 
       - name: Push Docker image
         run: |
-          docker push my-app
+          docker push docker-app
