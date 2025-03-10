@@ -1,27 +1,63 @@
-name: CI Workflow
+name: Deploy to Azure VM
 
 on:
   push:
     branches:
       - main
-  pull_request:
-    branches:
-      - main
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      - name: Set up Docker
-        uses: docker/setup-buildx-action@v1
+      - name: Install Ansible
+        run: sudo apt update && sudo apt install -y ansible
 
-      - name: Build Docker image
+      - name: Add SSH Key
         run: |
-          docker build -t docker-app .
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H 20.185.154.248 >> ~/.ssh/known_hosts
 
-      - name: Push Docker image
+      - name: Build Docker Image
+        run: docker build --no-cache -t my-web-app .
+
+      - name: Save Docker Image
+        run: docker save -o my-nginx.tar my-web-app
+
+      - name: Copy Docker Image to VM
+        run: scp -i ~/.ssh/id_rsa my-nginx.tar azureuser@20.185.154.248:/home/azureuser
+
+      - name: Add azureuser to Docker group
         run: |
-          docker push docker-app
+          ssh -i ~/.ssh/id_rsa -t azureuser@20.185.154.248 << 'EOF'
+            sudo usermod -aG docker azureuser
+            newgrp docker
+          EOF
+
+      - name: Stop and Remove Existing Docker Container (if using port 80)
+        run: |
+          ssh -i ~/.ssh/id_rsa -t azureuser@20.185.154.248 << 'EOF'
+            # Check if any container is using port 80 and stop/remove it
+            CONTAINER_ID=$(docker ps -q -f "publish=80")
+            if [ -n "$CONTAINER_ID" ]; then
+              docker stop $CONTAINER_ID
+              docker rm $CONTAINER_ID
+            fi
+          EOF
+
+      - name: Load Docker Image on VM
+        run: |
+          ssh -i ~/.ssh/id_rsa -t azureuser@20.185.154.248 << 'EOF'
+            docker load -i /home/azureuser/my-nginx.tar
+          EOF
+
+      - name: Run Docker Container
+        run: |
+          ssh -i ~/.ssh/id_rsa -t azureuser@20.185.154.248 << 'EOF'
+            sudo docker run -d -p 80:80 --name my-web-app my-web-app
+          EOF
